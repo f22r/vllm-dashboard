@@ -128,7 +128,9 @@ The application uses environment variables for configuration. You can create a `
 | `/api/vllm/stop` | POST | Stop a model or all models |
 | `/api/vllm/control/status` | GET | Get list of managed processes (running/zombies) |
 | `/api/vllm/download` | POST | Trigger a HuggingFace model download |
+| `/api/vllm/download/clear` | POST | Clear finished/failed download logs |
 | `/api/vllm/available-models` | GET | List models in local HF cache |
+| `/api/vllm/models/{model_path}` | DELETE | Delete a model from local HF cache |
 
 ### Chat & Inference
 | Endpoint | Method | Description |

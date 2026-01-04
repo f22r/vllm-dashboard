@@ -294,14 +294,35 @@ function DownloadModelCard({ downloads }) {
 
             {/* Download Progress Display */}
             {downloads && Object.entries(downloads).map(([name, status]) => (
-                <div key={name} className="mt-4 p-3 bg-black/40 rounded-lg border border-white/10 text-xs font-mono">
-                    <div className="flex justify-between text-gray-400 mb-1">
-                        <span>{name}</span>
-                        <span className={status.status === 'error' ? 'text-red-400' : 'text-green-400'}>{status.status}</span>
+                <div key={name} className="mt-4 p-3 bg-black/40 rounded-lg border border-white/10 text-xs font-mono group relative">
+                    <div className="flex justify-between text-gray-400 mb-1 pr-4">
+                        <span className="truncate max-w-[70%]">{name}</span>
+                        <span className={status.status === 'error' ? 'text-red-400' : status.status === 'done' ? 'text-green-400' : 'text-blue-400'}>
+                            {status.status}
+                        </span>
                     </div>
                     <div className="text-white truncate" title={status.log}>
                         {status.progress || status.log || 'Initializing...'}
                     </div>
+
+                    {status.status !== 'downloading' && (
+                        <button
+                            onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                    await fetch('/api/vllm/download/clear', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ model: name })
+                                    });
+                                } catch (e) { console.error(e); }
+                            }}
+                            className="absolute top-2 right-2 text-gray-600 hover:text-white transition-colors"
+                            title="Clear log"
+                        >
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    )}
                 </div>
             ))}
 
@@ -326,13 +347,42 @@ function DownloadModelCard({ downloads }) {
 
 function ModelFilesList() {
     const [models, setModels] = useState([]);
+    const [deleting, setDeleting] = useState(null);
 
-    useEffect(() => {
+    const fetchModels = () => {
         fetch('/api/vllm/available-models')
             .then(res => res.json())
             .then(data => setModels(data))
             .catch(err => console.error(err));
+    };
+
+    useEffect(() => {
+        fetchModels();
     }, []);
+
+    const handleDelete = async (model) => {
+        if (!confirm(`Are you sure you want to delete "${model}"?\n\nThis will permanently remove the model from your local cache.`)) {
+            return;
+        }
+
+        setDeleting(model);
+        try {
+            const response = await fetch(`/api/vllm/models/${encodeURIComponent(model)}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                fetchModels(); // Refresh list
+            } else {
+                alert(`Error: ${data.message}`);
+            }
+        } catch (e) {
+            alert('Failed to delete model');
+        } finally {
+            setDeleting(null);
+        }
+    };
 
     return (
         <div className="glass-card p-6">
@@ -341,7 +391,16 @@ function ModelFilesList() {
                     <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 14.66V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5.34"></path><polygon points="18 2 22 6 12 16 8 16 8 12 18 2"></polygon></svg>
                     Local Cache
                 </h2>
-                <span className="bg-white/10 px-2 py-1 rounded text-xs font-mono text-gray-400">{models.length} Models</span>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={fetchModels}
+                        className="text-gray-500 hover:text-white transition-colors p-1"
+                        title="Refresh"
+                    >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                    </button>
+                    <span className="bg-white/10 px-2 py-1 rounded text-xs font-mono text-gray-400">{models.length} Models</span>
+                </div>
             </div>
 
             <div className="overflow-hidden rounded-xl border border-white/5">
@@ -367,16 +426,29 @@ function ModelFilesList() {
                                             <div className="w-8 h-8 rounded bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center text-xs font-bold text-gray-300 border border-white/10">
                                                 HF
                                             </div>
-                                            {model}
+                                            <span className="truncate max-w-[300px]" title={model}>{model}</span>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                        <button
-                                            className="text-primary hover:text-white transition-colors text-xs font-bold uppercase tracking-wide"
-                                            onClick={() => navigator.clipboard.writeText(model)}
-                                        >
-                                            Copy ID
-                                        </button>
+                                        <div className="flex items-center justify-end gap-3">
+                                            <button
+                                                className="text-primary hover:text-white transition-colors text-xs font-bold uppercase tracking-wide"
+                                                onClick={() => navigator.clipboard.writeText(model)}
+                                            >
+                                                Copy
+                                            </button>
+                                            <button
+                                                className="text-red-500/70 hover:text-red-400 transition-colors text-xs font-bold uppercase tracking-wide disabled:opacity-50"
+                                                onClick={() => handleDelete(model)}
+                                                disabled={deleting === model}
+                                            >
+                                                {deleting === model ? (
+                                                    <span className="flex items-center gap-1">
+                                                        <div className="w-3 h-3 border border-red-400/30 border-t-red-400 rounded-full animate-spin"></div>
+                                                    </span>
+                                                ) : 'Delete'}
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))

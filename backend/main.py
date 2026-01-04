@@ -161,8 +161,9 @@ class VLLMManager:
             cmd = [
                 self.vllm_path, "serve", model_name,
                 "--port", str(port),
-                "--gpu-memory-utilization", "0.25", # Conservative for multi-model
-                "--dtype", "auto",
+                # "--gpu-memory-utilization", "0.98", # Maximize VRAM for 16GB GPU running 8B FP16
+                # "--max-model-len", "4096", # Limit context to fit in remaining VRAM (Llama 3.1 has 128k default)
+                # "--dtype", "half", # Force float16/bfloat16 to ensure known size
                 "--enforce-eager",
                 "--disable-log-stats"
             ]
@@ -450,10 +451,30 @@ async def download_model(request: dict, background_tasks: BackgroundTasks):
     if model_name in active_downloads and active_downloads[model_name]['status'] == 'downloading':
          return {"status": "error", "message": f"Download for {model_name} is already in progress"}
     
+    
     # Start async task
     asyncio.create_task(run_download_script(model_name, token))
     
     return {"status": "success", "message": f"Download initiated for {model_name}"}
+
+@app.post("/api/vllm/download/clear")
+async def clear_download_status(request: dict = None):
+    """Clear finished or failed download logs."""
+    model_name = request.get("model") if request else None
+    
+    if model_name:
+        if model_name in active_downloads:
+            # Only allow clearing if not currently downloading
+            if active_downloads[model_name]['status'] == 'downloading':
+                 return {"status": "error", "message": "Cannot clear active download"}
+            del active_downloads[model_name]
+    else:
+        # Clear all non-active
+        to_remove = [k for k, v in active_downloads.items() if v['status'] != 'downloading']
+        for k in to_remove:
+            del active_downloads[k]
+            
+    return {"status": "success", "message": "Download logs cleared"}
 
 @app.get("/api/vllm/available-models")
 async def get_available_models():
@@ -467,6 +488,29 @@ async def get_available_models():
                 name = item.name.replace("models--", "").replace("--", "/")
                 models.append(name)
     return models
+
+@app.delete("/api/vllm/models/{model_path:path}")
+async def delete_model(model_path: str):
+    """Delete a model from HuggingFace cache."""
+    import shutil
+    
+    # Check if model is currently running
+    if model_path in vllm_manager.processes:
+        return {"status": "error", "message": f"Cannot delete {model_path}: model is currently running. Stop it first."}
+    
+    # Convert model path to cache directory name
+    # e.g., facebook/opt-125m -> models--facebook--opt-125m
+    cache_name = "models--" + model_path.replace("/", "--")
+    cache_dir = Path(os.path.expanduser("~/.cache/huggingface/hub")) / cache_name
+    
+    if not cache_dir.exists():
+        return {"status": "error", "message": f"Model {model_path} not found in cache"}
+    
+    try:
+        shutil.rmtree(cache_dir)
+        return {"status": "success", "message": f"Model {model_path} deleted successfully"}
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to delete {model_path}: {str(e)}"}
 
 
 # ===== REST API Endpoints =====
