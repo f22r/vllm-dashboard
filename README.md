@@ -116,6 +116,7 @@ The application uses environment variables for configuration. You can create a `
 | `VLLM_URL` | `http://localhost:8001` | Default vLLM URL |
 | `FRONTEND_PORT` | `5510` | Frontend dev server port |
 | `BACKEND_PORT` | `5511` | Backend API port |
+| `HF_TOKEN` | *None* | Hugging Face Token (Required for gated models) |
 
 
 ## 🔌 API Endpoints

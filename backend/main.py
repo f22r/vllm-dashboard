@@ -6,6 +6,7 @@ FastAPI server with WebSocket support for real-time monitoring.
 import asyncio
 import json
 import os
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -161,7 +162,7 @@ class VLLMManager:
                 self.vllm_path, "serve", model_name,
                 "--port", str(port),
                 "--gpu-memory-utilization", "0.25", # Conservative for multi-model
-                "--dtype", "float16",
+                "--dtype", "auto",
                 "--enforce-eager",
                 "--disable-log-stats"
             ]
@@ -379,11 +380,17 @@ async def chat_completion(request: dict):
 # Global state for downloads
 active_downloads = {} # { model_name: { 'status': 'downloading|done|error', 'progress': '...', 'log': '...' } }
 
-async def run_download_script(model_name: str):
+async def run_download_script(model_name: str, token: str = None):
     """Run download in a subprocess and capture output."""
     active_downloads[model_name] = {'status': 'downloading', 'progress': 'Starting...', 'log': ''}
     
     try:
+        # Prepare environment
+        env = os.environ.copy()
+        if token:
+            env["HF_TOKEN"] = token
+            env["HUGGING_FACE_HUB_TOKEN"] = token
+            
         # Use python -c to run snapshot_download
         cmd = [
             sys.executable, "-c", 
@@ -393,7 +400,8 @@ async def run_download_script(model_name: str):
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env=env
         )
         
         # Helper to read stream
@@ -434,6 +442,8 @@ async def run_download_script(model_name: str):
 @app.post("/api/vllm/download")
 async def download_model(request: dict, background_tasks: BackgroundTasks):
     model_name = request.get("model")
+    token = request.get("token")
+    
     if not model_name:
         return {"status": "error", "message": "Model name is required"}
     
@@ -441,7 +451,7 @@ async def download_model(request: dict, background_tasks: BackgroundTasks):
          return {"status": "error", "message": f"Download for {model_name} is already in progress"}
     
     # Start async task
-    asyncio.create_task(run_download_script(model_name))
+    asyncio.create_task(run_download_script(model_name, token))
     
     return {"status": "success", "message": f"Download initiated for {model_name}"}
 
