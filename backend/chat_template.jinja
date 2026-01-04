@@ -1,0 +1,6 @@
+{% for message in messages %}
+{{ message['role']|title }}: {{ message['content'] }}
+{% endfor %}
+{% if add_generation_prompt %}
+Assistant:
+{% endif %}
