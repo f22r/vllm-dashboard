@@ -3,6 +3,9 @@
 Real-time monitoring and management dashboard for vLLM server with system resource visualization, model management, and integrated chat.
 
 ## ✨ Features
+![alt text](image.png)
+![alt text](image-1.png)
+![alt text](image-2.png)
 
 ### 🖥️ Dashboard & Monitoring
 - **Real-time Monitoring** - WebSocket-based live updates every 1.5 seconds.
