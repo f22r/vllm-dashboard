@@ -2,8 +2,6 @@
 
 Real-time monitoring and management dashboard for vLLM server with system resource visualization, model management, and integrated chat.
 
-![Dashboard Preview](docs/preview.png)
-
 ## ✨ Features
 
 ### 🖥️ Dashboard & Monitoring
