@@ -6,7 +6,7 @@ const availableModelsMock = [
 
 export function ModelManager({ data }) {
     return (
-        <div className="w-full max-w-7xl mx-auto pb-10">
+        <div className="w-full max-w-7xl mx-auto pb-10 px-4 md:px-0">
             <header className="mb-8">
                 <h1 className="text-3xl font-bold text-white mb-2">Model Management</h1>
                 <p className="text-gray-400">Deploy, manage, and download LLM models</p>
@@ -31,6 +31,28 @@ function ActiveModelControl({ gpuStats }) {
     const [selectedModel, setSelectedModel] = useState('');
     const [customModel, setCustomModel] = useState('facebook/opt-125m');
     const [availableModels, setAvailableModels] = useState([]);
+    const [servedModelName, setServedModelName] = useState('vllm-model');
+    // Default to 16384 to allow longer contexts while avoiding extreme values
+    const [maxModelLen, setMaxModelLen] = useState('16384');
+    const [maxNumSeqs, setMaxNumSeqs] = useState('16');
+    const [tensorParallelSize, setTensorParallelSize] = useState('1');
+    const [maxNumBatchedTokens, setMaxNumBatchedTokens] = useState('16384');
+    const [swapSpace, setSwapSpace] = useState('3');
+    const [host, setHost] = useState('0.0.0.0');
+    const [gpuMemoryUtilization, setGpuMemoryUtilization] = useState('0.90');
+    const [toolCallParser, setToolCallParser] = useState('hermes');
+    const [mambaSsmCacheDtype, setMambaSsmCacheDtype] = useState('float32');
+    const [reasoningParserPlugin, setReasoningParserPlugin] = useState('');
+    const [reasoningParser, setReasoningParser] = useState('');
+    const [kvCacheDtype, setKvCacheDtype] = useState('fp8');
+    // hide dtype input on UI; default empty
+    const [dtype, setDtype] = useState('');
+    // enforce_eager default false
+    const [enforceEager, setEnforceEager] = useState(false);
+    const [enableAutoToolChoice, setEnableAutoToolChoice] = useState(true);
+    // move enable_auto_tool_choice into extra_args default
+    const [portOverride, setPortOverride] = useState('');
+    const [extraArgsText, setExtraArgsText] = useState('');
 
     useEffect(() => {
         fetchAvailableModels();
@@ -78,7 +100,29 @@ function ActiveModelControl({ gpuStats }) {
             const response = await fetch('/api/vllm/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: modelToLaunch })
+                    body: JSON.stringify({
+                    model: modelToLaunch,
+                        options: {
+                        served_model_name: servedModelName,
+                        host: host || undefined,
+                        max_model_len: maxModelLen,
+                        max_num_seqs: maxNumSeqs,
+                        tensor_parallel_size: tensorParallelSize,
+                        max_num_batched_tokens: maxNumBatchedTokens,
+                        gpu_memory_utilization: gpuMemoryUtilization,
+                        swap_space: swapSpace,
+                        tool_call_parser: toolCallParser,
+                        mamba_ssm_cache_dtype: mambaSsmCacheDtype,
+                        reasoning_parser_plugin: reasoningParserPlugin || null,
+                        reasoning_parser: reasoningParser || null,
+                        kv_cache_dtype: kvCacheDtype || null,
+                        dtype: dtype || null,
+                        port: portOverride ? Number(portOverride) : undefined,
+                        enable_auto_tool_choice: enableAutoToolChoice,
+                        extra_args: extraArgsText ? extraArgsText.trim().split(/\s+/).filter(Boolean) : undefined,
+                        enforce_eager: enforceEager
+                    }
+                })
             });
             const data = await response.json();
             if (data.status === 'success') {
@@ -183,6 +227,177 @@ function ActiveModelControl({ gpuStats }) {
                         <option value="">-- Choose from Cache --</option>
                         {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">served_model_name</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={servedModelName}
+                            onChange={e => setServedModelName(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">Label tampilan model, bisa berbeda dengan model id.</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">max_model_len</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={maxModelLen}
+                            onChange={e => setMaxModelLen(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">Panjang context token maksimal.</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">host</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={host}
+                            onChange={e => setHost(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">Alamat host untuk vLLM server (default 0.0.0.0).</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">swap_space</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={swapSpace}
+                            onChange={e => setSwapSpace(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">Swap space (GB) untuk membantu memuat model besar.</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">max_num_batched_tokens</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={maxNumBatchedTokens}
+                            onChange={e => setMaxNumBatchedTokens(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">Batas total token yang dapat diproses per batch.</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">max_num_seqs</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={maxNumSeqs}
+                            onChange={e => setMaxNumSeqs(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">Jumlah sequence maksimal yang di-generate bersamaan.</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">tensor_parallel_size</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={tensorParallelSize}
+                            onChange={e => setTensorParallelSize(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">Tensor parallelism size.</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">gpu_memory_utilization</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={gpuMemoryUtilization}
+                            onChange={e => setGpuMemoryUtilization(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">Persentase VRAM (0-1).</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">tool_call_parser</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={toolCallParser}
+                            onChange={e => setToolCallParser(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">Parser alat, misal qwen3_xml.</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">mamba_ssm_cache_dtype</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={mambaSsmCacheDtype}
+                            onChange={e => setMambaSsmCacheDtype(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">dtype untuk mamba SSM cache (mis. float32).</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">reasoning_parser_plugin</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={reasoningParserPlugin}
+                            onChange={e => setReasoningParserPlugin(e.target.value)}
+                            placeholder="nano_v3_reasoning_parser.py"
+                        />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">reasoning_parser</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={reasoningParser}
+                            onChange={e => setReasoningParser(e.target.value)}
+                            placeholder="nano_v3"
+                        />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">kv_cache_dtype</label>
+                        <input
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={kvCacheDtype}
+                            onChange={e => setKvCacheDtype(e.target.value)}
+                        />
+                        <p className="text-[11px] text-gray-500">dtype untuk KV cache (mis. fp8).</p>
+                    </div>
+                    {/* dtype hidden on UI by default (optional) */}
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">port (opsional)</label>
+                        <input
+                            type="number"
+                            min={1024}
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={portOverride}
+                            onChange={e => setPortOverride(e.target.value)}
+                            placeholder="e.g. 8001"
+                        />
+                        <p className="text-[11px] text-gray-500">Override port untuk vLLM instance (opsional).</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">extra_args (opsional)</label>
+                        <textarea
+                            rows={3}
+                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
+                            value={extraArgsText}
+                            onChange={e => setExtraArgsText(e.target.value)}
+                            placeholder="--some-flag value --another-flag"
+                        />
+                        <p className="text-[11px] text-gray-500">Argument tambahan yang diteruskan ke perintah `vllm serve` (pisah dengan spasi). Kosongkan jika tidak diperlukan.</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">enforce_eager</label>
+                        <div className="flex items-center gap-2">
+                            <input
+                                id="enforceEager"
+                                type="checkbox"
+                                checked={enforceEager}
+                                onChange={e => setEnforceEager(e.target.checked)}
+                                className="h-4 w-4 text-primary focus:ring-primary"
+                            />
+                            <label htmlFor="enforceEager" className="text-xs text-gray-300">Wajib eager mode</label>
+                        </div>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase tracking-wider">enable_auto_tool_choice</label>
+                        <div className="flex items-center gap-2">
+                            <input
+                                id="enableAutoToolChoice"
+                                type="checkbox"
+                                checked={enableAutoToolChoice}
+                                onChange={e => setEnableAutoToolChoice(e.target.checked)}
+                                className="h-4 w-4 text-primary focus:ring-primary"
+                            />
+                            <label htmlFor="enableAutoToolChoice" className="text-xs text-gray-300">Izinkan pemilihan alat otomatis</label>
+                        </div>
+                    </div>
+                    {/* enable_auto_tool_choice moved into extra_args by default (see Extra Args) */}
                 </div>
 
                 <div className="flex gap-4 pt-2">

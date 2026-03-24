@@ -35,11 +35,36 @@ export function ChatInterface() {
         return () => clearInterval(interval);
     }, [selectedModel]);
 
+    // Load persisted chat for selected model
+    useEffect(() => {
+        const key = `chat_history_${selectedModel || 'global'}`;
+        try {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+                setMessages(JSON.parse(raw));
+            } else {
+                setMessages([]);
+            }
+        } catch (e) {
+            console.warn('Failed to load chat history', e);
+        }
+    }, [selectedModel]);
+
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
     useEffect(scrollToBottom, [messages]);
+
+    // Persist chat history on change
+    useEffect(() => {
+        const key = `chat_history_${selectedModel || 'global'}`;
+        try {
+            localStorage.setItem(key, JSON.stringify(messages));
+        } catch (e) {
+            console.warn('Failed to persist chat history', e);
+        }
+    }, [messages, selectedModel]);
 
     const handleSend = async () => {
         if (!input.trim() || !selectedModel) return;
@@ -84,19 +109,19 @@ export function ChatInterface() {
     };
 
     return (
-        <div className="w-full max-w-6xl mx-auto h-[calc(100vh-80px)] flex flex-col pb-6">
-            <header className="mb-4 flex items-center justify-between">
+        <div className="w-full max-w-6xl mx-auto h-[calc(100vh-80px)] flex flex-col pb-28 md:pb-6 px-4 md:px-0">
+            <header className="mb-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
                 <div>
                     <h1 className="text-2xl font-bold text-white mb-1">Live Chat</h1>
                     <p className="text-gray-400 text-sm">Interact with running models in real-time</p>
                 </div>
 
-                <div className="flex items-center gap-3 bg-surface/50 p-2 rounded-xl border border-white/10">
+                <div className="flex items-center gap-3 bg-surface/50 p-2 rounded-xl border border-white/10 flex-wrap">
                     <span className="text-sm text-gray-400 pl-2">Model:</span>
                     <select
                         value={selectedModel}
                         onChange={(e) => setSelectedModel(e.target.value)}
-                        className="bg-black/20 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary min-w-[200px]"
+                        className="bg-black/20 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary min-w-[120px] md:min-w-[200px]"
                     >
                         {models.length === 0 ? (
                             <option value="">No models running</option>
@@ -108,12 +133,23 @@ export function ChatInterface() {
                             ))
                         )}
                     </select>
+                    <button
+                        onClick={() => {
+                            // Clear chat and storage for current model
+                            const key = `chat_history_${selectedModel || 'global'}`;
+                            localStorage.removeItem(key);
+                            setMessages([]);
+                        }}
+                        className="ml-3 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm"
+                    >
+                        Clear Chat
+                    </button>
                 </div>
             </header>
 
             {/* Chat Area */}
-            <div className="flex-1 glass-card overflow-hidden flex flex-col relative">
-                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                <div className="flex-1 glass-card overflow-hidden flex flex-col relative">
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
                     {messages.length === 0 && (
                         <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-50">
                             <svg className="w-16 h-16 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
@@ -123,9 +159,9 @@ export function ChatInterface() {
 
                     {messages.map((msg, idx) => (
                         <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[80%] rounded-2xl px-5 py-4 ${msg.role === 'user'
-                                    ? 'bg-primary text-white ml-12 rounded-tr-none'
-                                    : 'bg-surface border border-white/10 text-gray-100 mr-12 rounded-tl-none'
+                            <div className={`max-w-full sm:max-w-[80%] break-words rounded-2xl px-4 py-3 ${msg.role === 'user'
+                                    ? 'bg-primary text-white sm:ml-12 ml-0 sm:rounded-tr-none rounded-tr-lg'
+                                    : 'bg-surface border border-white/10 text-gray-100 sm:mr-12 mr-0 sm:rounded-tl-none rounded-tl-lg'
                                 }`}>
                                 <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                             </div>
@@ -145,7 +181,7 @@ export function ChatInterface() {
                 </div>
 
                 {/* Input Area */}
-                <div className="p-4 border-t border-white/5 bg-surface/30">
+                <div className="p-4 border-t border-white/5 bg-surface/30 sticky bottom-0 z-10">
                     <div className="relative">
                         <textarea
                             value={input}
@@ -153,7 +189,7 @@ export function ChatInterface() {
                             onKeyDown={handleKeyDown}
                             disabled={!selectedModel || models.length === 0}
                             placeholder={!selectedModel ? "Start a model first..." : "Type your message... (Shift+Enter for new line)"}
-                            className="w-full bg-black/20 border border-white/10 rounded-xl pl-4 pr-14 py-4 text-white placeholder-gray-500 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 resize-none h-[60px] max-h-[120px]"
+                            className="w-full bg-black/20 border border-white/10 rounded-xl pl-4 pr-14 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 resize-none h-14 max-h-28"
                         />
                         <button
                             onClick={handleSend}

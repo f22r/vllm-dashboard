@@ -16,7 +16,7 @@ export function Dashboard({ data }) {
     }
 
     return (
-        <div className="w-full max-w-7xl mx-auto pb-10">
+        <div className="w-full max-w-7xl mx-auto pb-10 px-4 md:px-0">
             <header className="mb-8">
                 <h1 className="text-3xl font-bold text-white mb-2">System Overview</h1>
                 <p className="text-gray-400">Real-time monitoring of vLLM performance and system resources</p>

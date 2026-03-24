@@ -21,9 +21,9 @@ export function VllmStatus({ data }) {
     const metrics = data?.vllm?.metrics || {};
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             {/* Status Card */}
-            <div className="glass-card p-6 flex flex-col justify-between relative overflow-hidden">
+            <div className="glass-card p-4 flex flex-col justify-between relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -z-10"></div>
 
                 <div className="flex justify-between items-start mb-6">
@@ -62,7 +62,7 @@ export function VllmStatus({ data }) {
             </div>
 
             {/* Metrics Card */}
-            <div className="lg:col-span-2 glass-card p-6">
+            <div className="md:col-span-2 glass-card p-4">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-accent/10 rounded-lg text-accent">
                         <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -74,7 +74,7 @@ export function VllmStatus({ data }) {
                     <h2 className="text-lg font-semibold text-white">Performance Metrics</h2>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <MetricBox
                         label="Total Requests"
                         value={formatNumber(metrics.requests_total || 0)}

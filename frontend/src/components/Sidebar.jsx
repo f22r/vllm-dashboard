@@ -27,7 +27,8 @@ const ModelIcon = () => (
 
 export function Sidebar({ activeTab, setActiveTab, connectionStatus }) {
     return (
-        <div className="w-64 glass h-full flex flex-col border-r border-white/10 z-20">
+        // Hidden on small screens, shown on md+
+        <div className="hidden md:flex w-64 glass h-full flex-col border-r border-white/10 z-20">
             <div className="p-6 flex items-center space-x-3 border-b border-white/5">
                 <Logo />
                 <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-violet-500">
@@ -55,6 +56,20 @@ export function Sidebar({ activeTab, setActiveTab, connectionStatus }) {
                 >
                     <ModelIcon />
                     <span className="font-medium">Models</span>
+                </button>
+                <button
+                    onClick={() => setActiveTab('logs')}
+                    className={`nav-item w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeTab === 'logs'
+                        ? 'bg-purple-500/20 text-purple-400 border border-purple-500/20 shadow-[0_0_15px_rgba(139,92,246,0.2)]'
+                        : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                        }`}
+                >
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M4 4h16v16H4z"></path>
+                        <path d="M4 8h16" />
+                        <path d="M8 4v16" />
+                    </svg>
+                    <span className="font-medium">Logs</span>
                 </button>
                 <button
                     onClick={() => setActiveTab('chat')}

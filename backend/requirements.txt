@@ -5,3 +5,4 @@ psutil>=6.0.0
 nvidia-ml-py>=12.560.30
 httpx>=0.28.0
 python-dotenv>=1.0.0
+huggingface-hub>=0.15.0

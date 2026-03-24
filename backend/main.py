@@ -10,6 +10,7 @@ import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+import re
 
 from dotenv import load_dotenv
 
@@ -140,7 +141,7 @@ class VLLMManager:
             port += 1
         return port
 
-    async def start_server(self, model_name: str):
+    async def start_server(self, model_name: str, options: dict = None):
         if model_name in self.processes:
              # Check if it's dead
              proc_info = self.processes[model_name]
@@ -154,37 +155,138 @@ class VLLMManager:
         if len(self.processes) >= 3:
              return {"status": "error", "message": "Max model limit reached (3). Stop a model first."}
 
-        port = self._get_next_free_port()
-        
+        # Allow optional port override via options (useful for testing/custom deploy)
+        options = options or {}
+        requested_port = options.get('port')
+        if requested_port is not None:
+            try:
+                port = int(requested_port)
+            except Exception:
+                return {"status": "error", "message": f"Invalid port: {requested_port}"}
+            # check port availability
+            if self._is_port_in_use(port):
+                return {"status": "error", "message": f"Port {port} is already in use"}
+        else:
+            port = self._get_next_free_port()
+
         try:
             # Command to run vLLM
             cmd = [
                 self.vllm_path, "serve", model_name,
                 "--port", str(port),
-                # "--gpu-memory-utilization", "0.98", # Maximize VRAM for 16GB GPU running 8B FP16
-                # "--max-model-len", "4096", # Limit context to fit in remaining VRAM (Llama 3.1 has 128k default)
-                # "--dtype", "half", # Force float16/bfloat16 to ensure known size
-                "--enforce-eager",
-                "--disable-log-stats"
+                "--trust-remote-code"
             ]
+
+            # Allow overriding these options from API request (options already set above)
+            def add_option(flag, value):
+                if value is None:
+                    return
+                if isinstance(value, bool):
+                    if value:
+                        cmd.append(flag)
+                else:
+                    cmd.extend([flag, str(value)])
+
+            # Determine served model name (alias) to pass to vLLM and store for routing
+            served_name_option = options.get("served_model_name", "vllm-model")
+            add_option("--served-model-name", served_name_option)
+            # Pass a sensible default max_model_len unless user overrides it.
+            # Using 16384 reduces the chance of exceeding derived model limits
+            # while still allowing longer contexts for capable models.
+            add_option("--max-model-len", options.get("max_model_len", "16384"))
+            add_option("--gpu-memory-utilization", options.get("gpu_memory_utilization", "0.90"))
+            add_option("--tool-call-parser", options.get("tool_call_parser", "qwen3_xml"))
+            add_option("--dtype", options.get("dtype", None))
+            add_option("--enforce-eager", options.get("enforce_eager", True))
+            add_option("--enable-auto-tool-choice", options.get("enable_auto_tool_choice", True))
+
+            # Additional passthrough options requested by UI
+            add_option("--max-num-seqs", options.get("max_num_seqs"))
+            add_option("--tensor-parallel-size", options.get("tensor_parallel_size"))
+            add_option("--mamba_ssm_cache_dtype", options.get("mamba_ssm_cache_dtype"))
+            add_option("--reasoning-parser-plugin", options.get("reasoning_parser_plugin"))
+            add_option("--reasoning-parser", options.get("reasoning_parser"))
+            add_option("--kv-cache-dtype", options.get("kv_cache_dtype"))
+
+            # Networking and batching related options
+            add_option("--host", options.get("host"))
+            # swap-space can be used to configure host swap for big models
+            add_option("--swap-space", options.get("swap_space"))
+            add_option("--max-num-batched-tokens", options.get("max_num_batched_tokens"))
+            # NOTE: do not inject unsupported CLI flags here. If a model needs a
+            # different internal kernel layout, it should be handled by vLLM's
+            # own configuration or model code. We previously attempted to add
+            # `--head-first` for Qwen models, but that flag is not recognized
+            # by the `vllm` CLI and causes startup errors.
+            # Additional optional arguments (pass-through)
+            extra_args = options.get("extra_args")
+            if extra_args and isinstance(extra_args, list):
+                cmd.extend(extra_args)
 
             # Fix for models without chat template (like OPT)
             # Transformers v4.44+ requires explicit template
-            if "opt" in model_name.lower() or "pythia" in model_name.lower() or "gpt" in model_name.lower():
-                 template_path = os.path.join(os.path.dirname(__file__), "chat_template.jinja")
-                 cmd.extend(["--chat-template", template_path])
+            # if "opt" in model_name.lower() or "pythia" in model_name.lower() or "gpt" in model_name.lower():
+            #      template_path = os.path.join(os.path.dirname(__file__), "chat_template.jinja")
+            #      cmd.extend(["--chat-template", template_path])
             
             print(f"Starting vLLM [{model_name}] on port {port}: {' '.join(cmd)}")
-            
+
+            # Ensure the child vLLM process has the HF token in its environment
+            # so it can download gated models without unauthenticated warnings.
+            proc_env = os.environ.copy()
+            hf_token = os.getenv("HF_TOKEN")
+            if hf_token:
+                proc_env["HF_TOKEN"] = hf_token
+                proc_env["HUGGINGFACE_HUB_TOKEN"] = hf_token
+
+            # De-duplicate flags to avoid passing the same option twice
+            # (e.g. when `extra_args` includes a flag already added above).
+            deduped_cmd = []
+            seen_flags = set()
+            i = 0
+            while i < len(cmd):
+                part = cmd[i]
+                if part.startswith("--"):
+                    flag = part
+                    # If we've already seen this flag, skip it and its value (if any)
+                    if flag in seen_flags:
+                        # skip flag
+                        i += 1
+                        # skip following value if it's not another flag
+                        if i < len(cmd) and not cmd[i].startswith("--"):
+                            i += 1
+                        continue
+                    seen_flags.add(flag)
+                    deduped_cmd.append(flag)
+                    # if there's a value token following, include it
+                    if i + 1 < len(cmd) and not cmd[i + 1].startswith("--"):
+                        deduped_cmd.append(cmd[i + 1])
+                        i += 2
+                        continue
+                    i += 1
+                else:
+                    # positional or program path
+                    deduped_cmd.append(part)
+                    i += 1
+
             process = await asyncio.create_subprocess_exec(
-                *cmd
-                # Inherit stdout/stderr to see logs
+                *deduped_cmd,
+                env=proc_env
             )
             
+            # Normalize served model name to a simple string for routing
+            served_name = None
+            if served_name_option is not None:
+                if isinstance(served_name_option, (list, tuple)) and len(served_name_option) > 0:
+                    served_name = str(served_name_option[0])
+                else:
+                    served_name = str(served_name_option)
+
             self.processes[model_name] = {
                 'process': process,
                 'port': port,
-                'status': 'starting'
+                'status': 'starting',
+                'served_model_name': served_name
             }
             
             return {"status": "success", "message": f"Starting {model_name} on port {port}", "port": port}
@@ -321,13 +423,31 @@ vllm_manager = VLLMManager()
 @app.post("/api/vllm/start")
 async def start_vllm(config: dict):
     model = config.get("model", "facebook/opt-125m")
-    return await vllm_manager.start_server(model)
+    options = config.get("options", {})
+    return await vllm_manager.start_server(model, options)
 
 @app.post("/api/vllm/stop")
 async def stop_vllm(config: dict = None):
-    # Support stopping specific model
+    # Support stopping specific model. Accept either the internal process key or the
+    # served_model_name alias provided when the model was started.
     model = config.get("model") if config else None
-    return await vllm_manager.stop_server(model)
+
+    if model:
+        # If exact key exists, stop it
+        if model in vllm_manager.processes:
+            return await vllm_manager.stop_server(model)
+
+        # Otherwise, try to find by served_model_name alias
+        for key, info in list(vllm_manager.processes.items()):
+            served = info.get('served_model_name')
+            if served and str(served) == str(model):
+                return await vllm_manager.stop_server(key)
+
+        # Not found
+        return {"status": "error", "message": f"Model {model} not found"}
+
+    # No model specified -> stop all
+    return await vllm_manager.stop_server(None)
 
 @app.get("/api/vllm/control/status")
 async def get_control_status():
@@ -341,40 +461,78 @@ async def chat_completion(request: dict):
     if not model_name:
         return {"error": "Model name is required"}
     
-    # 1. Find the port for the running model
+    # 1. Find the port and served_model_name for the running model
     target_port = None
-    target_model_name = model_name
-    
-    # Check if we have exact match
+    target_model_key = None
+    target_served_name = None
+
+    # Try exact match against process key
     if model_name in vllm_manager.processes:
         target_port = vllm_manager.processes[model_name]['port']
+        target_model_key = model_name
+        target_served_name = vllm_manager.processes[model_name].get('served_model_name')
     else:
-        # Check if it's an "Unknown" process or by fuzzy match
+        # Try matching against served_model_name alias first
         for name, info in vllm_manager.processes.items():
-            if model_name in name:
+            served = info.get('served_model_name')
+            if served and model_name == served:
                 target_port = info['port']
-                target_model_name = name # Use the internal name just in case? VLLM cares about the model name in args usually
+                target_model_key = name
+                target_served_name = served
                 break
+
+        # Fallback: fuzzy match against stored process keys
+        if target_port is None:
+            for name, info in vllm_manager.processes.items():
+                if model_name in name:
+                    target_port = info['port']
+                    target_model_key = name
+                    target_served_name = info.get('served_model_name')
+                    break
     
     if not target_port:
         return {"error": f"Model {model_name} is not currently running"}
     
-    # 2. Forward request to VLLM
+    # 2. Forward request to VLLM — use served_model_name alias if available, otherwise use original
     vllm_api_url = f"http://localhost:{target_port}/v1/chat/completions"
-    
+
+    model_to_send = target_served_name or model_name
+
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 vllm_api_url,
                 json={
-                    "model": model_name, # Pass original requested name, as vLLM usually expects the loaded path
+                    "model": model_to_send,
                     "messages": messages,
                     "max_tokens": 512,
                     "temperature": 0.7
                 }
             )
             response.raise_for_status()
-            return response.json()
+            # Sanitize response to remove internal reasoning tags (e.g., <think>...</think>)
+            try:
+                resp_json = response.json()
+            except Exception:
+                return {"error": "Invalid response from vLLM"}
+
+            # Clean message content in choices (OpenAI-like responses)
+            if isinstance(resp_json, dict) and resp_json.get("choices"):
+                for choice in resp_json.get("choices", []):
+                    # choice may have OpenAI-style message content
+                    message = choice.get("message") if isinstance(choice, dict) else None
+                    if isinstance(message, dict):
+                        content = message.get("content", "")
+                        if isinstance(content, str) and content:
+                            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+                            message["content"] = content.strip()
+                    # fallback: plain text field
+                    if isinstance(choice, dict) and isinstance(choice.get("text"), str):
+                        text = choice.get("text", "")
+                        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+                        choice["text"] = text.strip()
+
+            return resp_json
     except Exception as e:
         return {"error": f"Failed to communicate with vLLM on port {target_port}: {str(e)}"}
 
@@ -386,16 +544,34 @@ async def run_download_script(model_name: str, token: str = None):
     active_downloads[model_name] = {'status': 'downloading', 'progress': 'Starting...', 'log': ''}
     
     try:
-        # Prepare environment
+        # Ensure huggingface_hub is available; provide clearer error if missing
+        try:
+            import huggingface_hub
+        except ModuleNotFoundError:
+            msg = "huggingface_hub is not installed. Please run: pip install -r backend/requirements.txt"
+            print(f"[Download {model_name}] {msg}")
+            active_downloads[model_name] = {'status': 'error', 'progress': msg, 'log': msg}
+            return
+        # Prepare environment and include HF token from env if not provided
         env = os.environ.copy()
-        if token:
-            env["HF_TOKEN"] = token
-            env["HUGGING_FACE_HUB_TOKEN"] = token
-            
-        # Use python -c to run snapshot_download
+        hf_token = token or os.getenv("HF_TOKEN")
+        if hf_token:
+            # Common env var names recognized by huggingface libraries
+            env["HF_TOKEN"] = hf_token
+            env["HUGGINGFACE_HUB_TOKEN"] = hf_token
+            env["HUGGING_FACE_HUB_TOKEN"] = hf_token
+
+        # Use python -c to run snapshot_download. Pass the token via environment
+        # to avoid shell-quoting issues and keep secrets out of the command string.
         cmd = [
-            sys.executable, "-c", 
-            f"from huggingface_hub import snapshot_download; print('Starting download...'); snapshot_download(repo_id='{model_name}')"
+            sys.executable,
+            "-c",
+            (
+                "import os\n"
+                "from huggingface_hub import snapshot_download\n"
+                "print('Starting download...')\n"
+                f"snapshot_download(repo_id='{model_name}', token=os.environ.get('HUGGINGFACE_HUB_TOKEN'))"
+            )
         ]
         
         process = await asyncio.create_subprocess_exec(
@@ -566,7 +742,111 @@ async def get_vllm_models():
 async def get_vllm_metrics():
     """Get vLLM metrics."""
     vllm = get_vllm_service(VLLM_URL)
-    return await vllm.get_metrics()
+        """Get vLLM performance metrics.
+
+        If multiple vLLM instances are managed (multi-model), aggregate metrics
+        from each running instance's `/metrics` endpoint so the dashboard shows
+        combined totals instead of relying on a single VLLM_URL.
+        """
+        # Helper to parse Prometheus-style metrics text into numbers we care about
+        def parse_metrics_text(text: str):
+            metrics = {
+                'requests_total': 0,
+                'requests_running': 0,
+                'tokens_generated': 0,
+            }
+            if not text:
+                return metrics
+            for line in text.splitlines():
+                if not line or line.startswith('#'):
+                    continue
+                try:
+                    if 'vllm:num_requests_running' in line:
+                        metrics['requests_running'] += int(float(line.split()[-1]))
+                    elif 'vllm:num_requests_total' in line:
+                        metrics['requests_total'] += int(float(line.split()[-1]))
+                    elif 'vllm:generation_tokens_total' in line:
+                        metrics['tokens_generated'] += int(float(line.split()[-1]))
+                except Exception:
+                    continue
+            return metrics
+
+        # If we have multiple managed processes, query each one and aggregate
+        aggregated = {'requests_total': 0, 'requests_running': 0, 'tokens_generated': 0}
+        # Gather ports from vllm_manager processes
+        ports = []
+        for info in vllm_manager.processes.values():
+            p = info.get('port')
+            if isinstance(p, int):
+                ports.append(p)
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # Query each /metrics endpoint concurrently
+            tasks = []
+            for port in ports:
+                url = f"http://localhost:{port}/metrics"
+                tasks.append(client.get(url))
+
+            if tasks:
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
+                for resp in responses:
+                    if isinstance(resp, Exception):
+                        continue
+                    try:
+                        text = resp.text
+                    except Exception:
+                        text = ''
+                    parsed = parse_metrics_text(text)
+                    aggregated['requests_total'] += parsed['requests_total']
+                    aggregated['requests_running'] += parsed['requests_running']
+                    aggregated['tokens_generated'] += parsed['tokens_generated']
+                return aggregated
+
+        # Fallback: query the configured VLLM_URL (legacy single-server mode)
+        vllm = get_vllm_service(VLLM_URL)
+        return await vllm.get_metrics()
+
+
+@app.get("/api/vllm/logs")
+async def get_vllm_logs(lines: int = 200):
+    """Return latest backend self logs from pm2."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["pm2", "logs", "vllm-backend", "--lines", str(lines), "--nostream", "--no-color"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        if result.returncode != 0:
+            return {"status": "error", "message": "Failed to fetch pm2 logs", "details": result.stderr}
+
+        # Filter and clean pm2/pm2-logctl header lines, UI polling requests, and empty lines
+        import re
+        stdout = result.stdout or ""
+        filtered_lines = []
+        for l in stdout.splitlines():
+            if not l or not l.strip():
+                continue
+            # Remove pm2 tailing header lines
+            if l.startswith('[TAILING]'):
+                continue
+            # Remove the "<path> last N lines:" header pm2 prints
+            if re.match(r'^/.*last \d+ lines:?', l):
+                continue
+            # Skip frontend's own polling requests
+            if '/api/vllm/logs' in l:
+                continue
+
+            # Remove the pm2 prefix like "0|vllm-bac | " to make logs cleaner
+            cleaned_line = re.sub(r'^\d+\|[^|]+\s\|\s', '', l)
+            filtered_lines.append(cleaned_line)
+
+        cleaned = "\n".join(filtered_lines)
+        return {"status": "success", "logs": cleaned}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 # ===== WebSocket for Real-time Updates =====
@@ -662,5 +942,7 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=BACKEND_PORT,
-        reload=True
+        reload=True,
+        access_log=False,
+        log_level="info"
     )
