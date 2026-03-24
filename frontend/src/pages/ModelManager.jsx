@@ -120,7 +120,6 @@ function ActiveModelControl({ gpuStats }) {
                         tensor_parallel_size: tensorParallelSize,
                         max_num_batched_tokens: maxNumBatchedTokens,
                         gpu_memory_utilization: gpuMemoryUtilization,
-                        swap_space: swapSpace,
                         tool_call_parser: toolCallParser,
                         mamba_ssm_cache_dtype: mambaSsmCacheDtype,
                         reasoning_parser_plugin: reasoningParserPlugin || null,
@@ -516,6 +515,7 @@ function DownloadModelCard({ downloads }) {
                         <>
                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                             Downloading...
+                        </>
                     ) : (
                         <>
                             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
