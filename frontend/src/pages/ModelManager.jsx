@@ -37,7 +37,6 @@ function ActiveModelControl({ gpuStats }) {
     const [maxNumSeqs, setMaxNumSeqs] = useState('16');
     const [tensorParallelSize, setTensorParallelSize] = useState('1');
     const [maxNumBatchedTokens, setMaxNumBatchedTokens] = useState('16384');
-    const [swapSpace, setSwapSpace] = useState('3');
     const [host, setHost] = useState('0.0.0.0');
     const [gpuMemoryUtilization, setGpuMemoryUtilization] = useState('0.90');
     const [toolCallParser, setToolCallParser] = useState('hermes');
@@ -281,15 +280,6 @@ function ActiveModelControl({ gpuStats }) {
                         <p className="text-[11px] text-gray-500">Alamat host untuk vLLM server (default 0.0.0.0).</p>
                     </div>
                     <div className="space-y-1">
-                        <label className="text-xs text-gray-400 uppercase tracking-wider">swap_space</label>
-                        <input
-                            className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
-                            value={swapSpace}
-                            onChange={e => setSwapSpace(e.target.value)}
-                        />
-                        <p className="text-[11px] text-gray-500">Swap space (GB) untuk membantu memuat model besar.</p>
-                    </div>
-                    <div className="space-y-1">
                         <label className="text-xs text-gray-400 uppercase tracking-wider">max_num_batched_tokens</label>
                         <input
                             className="w-full rounded-lg bg-background border border-white/10 px-3 py-2 text-white text-sm"
@@ -526,7 +516,6 @@ function DownloadModelCard({ downloads }) {
                         <>
                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                             Downloading...
-                        </>
                     ) : (
                         <>
                             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>

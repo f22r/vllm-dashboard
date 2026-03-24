@@ -210,8 +210,6 @@ class VLLMManager:
 
             # Networking and batching related options
             add_option("--host", options.get("host"))
-            # swap-space can be used to configure host swap for big models
-            add_option("--swap-space", options.get("swap_space"))
             add_option("--max-num-batched-tokens", options.get("max_num_batched_tokens"))
             # NOTE: do not inject unsupported CLI flags here. If a model needs a
             # different internal kernel layout, it should be handled by vLLM's
