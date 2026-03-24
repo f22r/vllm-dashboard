@@ -740,71 +740,66 @@ async def get_vllm_models():
 
 @app.get("/api/vllm/metrics")
 async def get_vllm_metrics():
-    """Get vLLM metrics."""
-    vllm = get_vllm_service(VLLM_URL)
-        """Get vLLM performance metrics.
+    """Get vLLM performance metrics.
 
-        If multiple vLLM instances are managed (multi-model), aggregate metrics
-        from each running instance's `/metrics` endpoint so the dashboard shows
-        combined totals instead of relying on a single VLLM_URL.
-        """
-        # Helper to parse Prometheus-style metrics text into numbers we care about
-        def parse_metrics_text(text: str):
-            metrics = {
-                'requests_total': 0,
-                'requests_running': 0,
-                'tokens_generated': 0,
-            }
-            if not text:
-                return metrics
-            for line in text.splitlines():
-                if not line or line.startswith('#'):
-                    continue
-                try:
-                    if 'vllm:num_requests_running' in line:
-                        metrics['requests_running'] += int(float(line.split()[-1]))
-                    elif 'vllm:num_requests_total' in line:
-                        metrics['requests_total'] += int(float(line.split()[-1]))
-                    elif 'vllm:generation_tokens_total' in line:
-                        metrics['tokens_generated'] += int(float(line.split()[-1]))
-                except Exception:
-                    continue
+    If multiple vLLM instances are managed (multi-model), aggregate metrics
+    from each running instance's `/metrics` endpoint so the dashboard shows
+    combined totals instead of relying on a single VLLM_URL.
+    """
+
+    # Helper to parse Prometheus-style metrics text into numbers we care about
+    def parse_metrics_text(text: str):
+        metrics = {
+            'requests_total': 0,
+            'requests_running': 0,
+            'tokens_generated': 0,
+        }
+        if not text:
             return metrics
+        for line in text.splitlines():
+            if not line or line.startswith('#'):
+                continue
+            try:
+                if 'vllm:num_requests_running' in line:
+                    metrics['requests_running'] += int(float(line.split()[-1]))
+                elif 'vllm:num_requests_total' in line:
+                    metrics['requests_total'] += int(float(line.split()[-1]))
+                elif 'vllm:generation_tokens_total' in line:
+                    metrics['tokens_generated'] += int(float(line.split()[-1]))
+            except Exception:
+                continue
+        return metrics
 
-        # If we have multiple managed processes, query each one and aggregate
-        aggregated = {'requests_total': 0, 'requests_running': 0, 'tokens_generated': 0}
-        # Gather ports from vllm_manager processes
-        ports = []
-        for info in vllm_manager.processes.values():
-            p = info.get('port')
-            if isinstance(p, int):
-                ports.append(p)
+    # If we have multiple managed processes, query each one and aggregate
+    aggregated = {'requests_total': 0, 'requests_running': 0, 'tokens_generated': 0}
+    # Gather ports from vllm_manager processes
+    ports = []
+    for info in vllm_manager.processes.values():
+        p = info.get('port')
+        if isinstance(p, int):
+            ports.append(p)
 
+    if ports:
         async with httpx.AsyncClient(timeout=5.0) as client:
             # Query each /metrics endpoint concurrently
-            tasks = []
-            for port in ports:
-                url = f"http://localhost:{port}/metrics"
-                tasks.append(client.get(url))
+            tasks = [client.get(f"http://localhost:{port}/metrics") for port in ports]
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+            for resp in responses:
+                if isinstance(resp, Exception):
+                    continue
+                try:
+                    text = resp.text
+                except Exception:
+                    text = ''
+                parsed = parse_metrics_text(text)
+                aggregated['requests_total'] += parsed['requests_total']
+                aggregated['requests_running'] += parsed['requests_running']
+                aggregated['tokens_generated'] += parsed['tokens_generated']
+        return aggregated
 
-            if tasks:
-                responses = await asyncio.gather(*tasks, return_exceptions=True)
-                for resp in responses:
-                    if isinstance(resp, Exception):
-                        continue
-                    try:
-                        text = resp.text
-                    except Exception:
-                        text = ''
-                    parsed = parse_metrics_text(text)
-                    aggregated['requests_total'] += parsed['requests_total']
-                    aggregated['requests_running'] += parsed['requests_running']
-                    aggregated['tokens_generated'] += parsed['tokens_generated']
-                return aggregated
-
-        # Fallback: query the configured VLLM_URL (legacy single-server mode)
-        vllm = get_vllm_service(VLLM_URL)
-        return await vllm.get_metrics()
+    # Fallback: query the configured VLLM_URL (legacy single-server mode)
+    vllm = get_vllm_service(VLLM_URL)
+    return await vllm.get_metrics()
 
 
 @app.get("/api/vllm/logs")
