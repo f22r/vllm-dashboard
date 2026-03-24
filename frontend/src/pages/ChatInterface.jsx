@@ -13,13 +13,18 @@ export function ChatInterface() {
         const fetchModels = async () => {
             try {
                 const response = await fetch('/api/vllm/control/status');
-                const data = await response.json();
-                if (data.models && data.models.length > 0) {
+                let data = null;
+                try {
+                    const text = await response.text();
+                    data = text ? JSON.parse(text) : null;
+                } catch (e) {
+                    console.warn('Failed to parse control status JSON:', e);
+                    data = null;
+                }
+                if (data && data.models && data.models.length > 0) {
                     setModels(data.models);
                     // Select first available model by default
-                    if (!selectedModel) {
-                        setSelectedModel(data.models[0].name);
-                    }
+                    if (!selectedModel) setSelectedModel(data.models[0].name);
                 } else {
                     setModels([]);
                     setSelectedModel('');
@@ -84,7 +89,13 @@ export function ChatInterface() {
                 })
             });
 
-            const data = await response.json();
+            let data = null;
+            try {
+                const text = await response.text();
+                data = text ? JSON.parse(text) : { error: 'Empty response' };
+            } catch (e) {
+                data = { error: 'Invalid JSON response from server' };
+            }
 
             if (data.error) {
                 setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${data.error}` }]);

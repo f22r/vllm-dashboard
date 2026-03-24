@@ -64,7 +64,14 @@ function ActiveModelControl({ gpuStats }) {
     const fetchAvailableModels = async () => {
         try {
             const response = await fetch('/api/vllm/available-models');
-            const models = await response.json();
+            let models = [];
+            try {
+                const text = await response.text();
+                models = text ? JSON.parse(text) : [];
+            } catch (e) {
+                console.warn('Failed to parse available-models JSON:', e);
+                models = [];
+            }
             setAvailableModels(models);
         } catch (error) {
             console.error('Failed to fetch available models:', error);
@@ -74,12 +81,16 @@ function ActiveModelControl({ gpuStats }) {
     const updateControlStatus = async () => {
         try {
             const response = await fetch('/api/vllm/control/status');
-            const data = await response.json();
-            if (data.models) {
-                setRunningModels(data.models);
-            } else {
-                setRunningModels([]);
+            let data = null;
+            try {
+                const text = await response.text();
+                data = text ? JSON.parse(text) : null;
+            } catch (e) {
+                console.warn('Failed to parse control status JSON:', e);
+                data = null;
             }
+            if (data && data.models) setRunningModels(data.models);
+            else setRunningModels([]);
         } catch (error) {
             console.error('Failed to get status:', error);
         }
@@ -124,11 +135,17 @@ function ActiveModelControl({ gpuStats }) {
                     }
                 })
             });
-            const data = await response.json();
-            if (data.status === 'success') {
+            let data = null;
+            try {
+                const text = await response.text();
+                data = text ? JSON.parse(text) : { status: 'error', message: 'Empty response' };
+            } catch (e) {
+                data = { status: 'error', message: 'Invalid JSON response from server' };
+            }
+            if (data && data.status === 'success') {
                 setTimeout(updateControlStatus, 2000);
             } else {
-                alert(`Error: ${data.message}`);
+                alert(`Error: ${data?.message || 'Unknown error'}`);
                 updateControlStatus();
             }
         } catch (error) {
@@ -146,7 +163,13 @@ function ActiveModelControl({ gpuStats }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ model: modelName }) // If modelName is null, backend stops all/current
             });
-            const data = await response.json();
+            let data = null;
+            try {
+                const text = await response.text();
+                data = text ? JSON.parse(text) : { status: 'error', message: 'Empty response' };
+            } catch (e) {
+                data = { status: 'error', message: 'Invalid JSON response from server' };
+            }
             if (data.status === 'success') {
                 if (modelName) {
                     setRunningModels(prev => prev.filter(m => m.name !== modelName));
@@ -155,7 +178,7 @@ function ActiveModelControl({ gpuStats }) {
                 }
                 setTimeout(updateControlStatus, 1000);
             } else {
-                alert(`Error: ${data.message}`);
+                alert(`Error: ${data?.message || 'Unknown error'}`);
             }
         } catch (error) {
             alert('Failed to send stop command');
@@ -446,7 +469,13 @@ function DownloadModelCard({ downloads }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ model: modelName })
             });
-            const data = await response.json();
+            let data = null;
+            try {
+                const text = await response.text();
+                data = text ? JSON.parse(text) : { status: 'error', message: 'Empty response' };
+            } catch (e) {
+                data = { status: 'error', message: 'Invalid JSON response from server' };
+            }
             if (data.status === 'success') {
                 // Alert handled by UI update
             } else {
